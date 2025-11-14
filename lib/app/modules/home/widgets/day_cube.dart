@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../../data/models/tiffin_model.dart';
@@ -19,7 +18,6 @@ class DayCube extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine background color based on tiffin type
     Color bgColor;
     if (type == TiffinType.veg) {
       bgColor = Colors.green;
@@ -29,13 +27,9 @@ class DayCube extends StatelessWidget {
       bgColor = Colors.grey.shade300;
     }
 
-    // Determine border for payment day
     BoxBorder? border;
     if (isPaymentDay) {
-      border = Border.all(
-        color: Colors.amber.shade700,
-        width: 3,
-      );
+      border = Border.all(color: Colors.amber.shade700, width: 3);
     }
 
     return GestureDetector(
@@ -59,7 +53,6 @@ class DayCube extends StatelessWidget {
             "${date.day}",
             style: TextStyle(
               color: type == TiffinType.none ? Colors.black87 : Colors.white,
-              // fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
           ),

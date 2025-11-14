@@ -273,7 +273,6 @@ class _HomeViewState extends State<HomeView> {
   }
 }
 
-// Helper widget for Veg/Non-Veg/Days
 Widget _summaryItem(String title, String value, Color color) {
   return Column(
     children: [
