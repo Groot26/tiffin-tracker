@@ -287,14 +287,7 @@ class CalendarWidget extends StatelessWidget {
                 (item) => _bottomSheetTile(
                   title: item.key,
                   onTap: () {
-                    controller.updateTiffin(
-                      // keep your controller signature (you had context, controller, days)
-                      context: context,
-                      date: date,
-                      type: item.value,
-                      controller: controller,
-                      days: days,
-                    );
+                    controller.updateTiffin(date: date, type: item.value);
                     _updateWidgetAfterClose(context, item.value);
                   },
                 ),

@@ -6,100 +6,70 @@ import '../data/services/storage_service.dart';
 import 'home_widget_config.dart';
 
 class TiffinController extends GetxController {
+  final storage = StorageService();
+
   var tiffins = <TiffinModel>[].obs;
   var paymentDates = <DateTime>[].obs;
-  final storage = StorageService();
 
   @override
   void onInit() {
     super.onInit();
-
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      HomeWidgetConfig.initialize().then((value) async {
-        loadTiffins();
-        loadPaymentDates();
-      });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await HomeWidgetConfig.initialize();
+      await _loadInitialData();
     });
+  }
+
+  Future<void> _loadInitialData() async {
+    await loadTiffins();
+    await loadPaymentDates();
   }
 
   List<DateTime?> getCalendarDays(DateTime month) {
     final firstDay = DateTime(month.year, month.month, 1);
-    final lastDay = DateTime(month.year, month.month + 1, 0);
+    final totalDays = DateTime(month.year, month.month + 1, 0).day;
 
-    List<DateTime?> days = List<DateTime?>.filled(
-      firstDay.weekday % 7,
-      null,
-      growable: true,
+    final leadingNulls = List<DateTime?>.filled(firstDay.weekday % 7, null);
+    final monthDays = List<DateTime?>.generate(
+      totalDays,
+      (i) => DateTime(month.year, month.month, i + 1),
     );
 
-    for (int i = 1; i <= lastDay.day; i++) {
-      days.add(DateTime(month.year, month.month, i));
-    }
-    return days;
+    return [...leadingNulls, ...monthDays];
   }
 
   Future<void> loadTiffins() async {
     tiffins.value = await storage.loadData();
   }
 
-  DateTime getLastTiffinDate() {
-    if (tiffins.isEmpty) return DateTime.now();
-
-    final validDates =
-        tiffins
-            .where((e) => e.type != TiffinType.none)
-            .map((e) => e.date)
-            .toList();
-
-    if (validDates.isEmpty) return DateTime.now();
-
-    validDates.sort((a, b) => a.compareTo(b));
-    return validDates.last;
-  }
+  DateTime getLastTiffinDate() => DateTime.now();
 
   int totalCurrentCycle() {
-    DateTime from;
-    if (paymentDates.isEmpty) {
-      from = tiffins.isNotEmpty ? tiffins.first.date : DateTime.now();
-    } else {
-      from = paymentDates.last.add(Duration(days: 1));
-    }
-
-    DateTime to = getLastTiffinDate();
-
-    return totalAmountBetween(from, to);
+    final start = getCurrentCycleStart();
+    final end = getCurrentCycleEnd();
+    return totalAmountBetween(start, end);
   }
 
   DateTime getCurrentCycleStart() {
     if (paymentDates.isEmpty) {
       return tiffins.isNotEmpty ? tiffins.first.date : DateTime.now();
     }
-    return paymentDates.last.add(Duration(days: 1));
+    return paymentDates.last.add(const Duration(days: 1));
   }
 
-  DateTime getCurrentCycleEnd() {
-    return getLastTiffinDate();
-  }
+  DateTime getCurrentCycleEnd() => getLastTiffinDate();
 
   Future<void> loadPaymentDates() async {
     final loaded = await storage.loadPaymentDates();
-    loaded.sort((a, b) => a.compareTo(b));
+    loaded.sort();
     paymentDates.value = loaded;
   }
 
   Future<void> updateTiffin({
     required DateTime date,
     required TiffinType type,
-    required BuildContext context,
-    required TiffinController controller,
-    required List<DateTime?> days,
   }) async {
-    final index = tiffins.indexWhere(
-      (e) =>
-          e.date.year == date.year &&
-          e.date.month == date.month &&
-          e.date.day == date.day,
-    );
+    final index = tiffins.indexWhere((e) => _isSameDate(e.date, date));
 
     if (index >= 0) {
       tiffins[index].type = type;
@@ -109,25 +79,17 @@ class TiffinController extends GetxController {
 
     await storage.saveData(tiffins);
     tiffins.refresh();
-
-    // HomeWidgetConfig.update(
-    //   context,
-    // CalendarWidget(controller: controller, days: days),
-    // );
   }
 
   Future<void> togglePaymentDate(DateTime date) async {
-    final existsIndex = paymentDates.indexWhere(
-      (d) => d.year == date.year && d.month == date.month && d.day == date.day,
-    );
+    final normalized = _normalize(date);
+    final index = paymentDates.indexWhere((d) => _isSameDate(d, normalized));
 
-    if (existsIndex >= 0) {
-      paymentDates.removeAt(existsIndex);
+    if (index >= 0) {
+      paymentDates.removeAt(index);
     } else {
-      paymentDates.add(
-        DateTime(date.year, date.month, date.day),
-      ); // normalize time
-      paymentDates.sort((a, b) => a.compareTo(b));
+      paymentDates.add(normalized);
+      paymentDates.sort();
     }
 
     await storage.savePaymentDates(paymentDates);
@@ -135,71 +97,66 @@ class TiffinController extends GetxController {
   }
 
   Future<void> addPaymentDate(DateTime date) async {
-    final normalized = DateTime(date.year, date.month, date.day);
-    if (!paymentDates.any((d) => d == normalized)) {
-      paymentDates.add(normalized);
-      paymentDates.sort((a, b) => a.compareTo(b));
-      await storage.savePaymentDates(paymentDates);
-      paymentDates.refresh();
-    }
-  }
+    final normalized = _normalize(date);
+    if (paymentDates.any((d) => _isSameDate(d, normalized))) return;
 
-  Future<void> removePaymentDate(DateTime date) async {
-    paymentDates.removeWhere(
-      (d) => d.year == date.year && d.month == date.month && d.day == date.day,
-    );
+    paymentDates.add(normalized);
+    paymentDates.sort();
+
     await storage.savePaymentDates(paymentDates);
     paymentDates.refresh();
   }
 
-  // existing summary helpers...
-  int totalVegInMonth(DateTime month) {
-    return tiffins
-        .where((t) => t.date.year == month.year && t.date.month == month.month)
-        .where((t) => t.type == TiffinType.veg)
-        .length;
+  Future<void> removePaymentDate(DateTime date) async {
+    paymentDates.removeWhere((d) => _isSameDate(d, date));
+    await storage.savePaymentDates(paymentDates);
+    paymentDates.refresh();
   }
 
-  int totalNonVegInMonth(DateTime month) {
-    return tiffins
-        .where((t) => t.date.year == month.year && t.date.month == month.month)
-        .where((t) => t.type == TiffinType.nonVeg)
-        .length;
-  }
+  int totalVegInMonth(DateTime month) => _countByType(month, TiffinType.veg);
+
+  int totalNonVegInMonth(DateTime month) =>
+      _countByType(month, TiffinType.nonVeg);
 
   int totalDaysInMonth(DateTime month) {
     return tiffins
-        .where(
-          (t) =>
-              t.date.year == month.year &&
-              t.date.month == month.month &&
-              (t.type == TiffinType.veg || t.type == TiffinType.nonVeg),
-        )
+        .where((t) => t.date.year == month.year && t.date.month == month.month)
+        .where((t) => t.type == TiffinType.veg || t.type == TiffinType.nonVeg)
         .length;
   }
 
   int totalAmountInMonth(DateTime month) {
-    int vegCount = totalVegInMonth(month);
-    int nonVegCount = totalNonVegInMonth(month);
-    return vegCount * 80 + nonVegCount * 100;
+    return totalVegInMonth(month) * 80 + totalNonVegInMonth(month) * 100;
   }
 
   int totalAmountBetween(DateTime from, DateTime to) {
-    final start = DateTime(from.year, from.month, from.day);
+    final start = _normalize(from);
     final end = DateTime(to.year, to.month, to.day, 23, 59, 59);
 
-    int vegCount =
-        tiffins
-            .where((t) => !t.date.isBefore(start) && !t.date.isAfter(end))
-            .where((t) => t.type == TiffinType.veg)
-            .length;
+    final veg = _countBetween(start, end, TiffinType.veg);
+    final nonVeg = _countBetween(start, end, TiffinType.nonVeg);
 
-    int nonVegCount =
-        tiffins
-            .where((t) => !t.date.isBefore(start) && !t.date.isAfter(end))
-            .where((t) => t.type == TiffinType.nonVeg)
-            .length;
-
-    return vegCount * 80 + nonVegCount * 100;
+    return veg * 80 + nonVeg * 100;
   }
+
+  int _countByType(DateTime month, TiffinType type) {
+    return tiffins
+        .where((t) => t.date.year == month.year && t.date.month == month.month)
+        .where((t) => t.type == type)
+        .length;
+  }
+
+  int _countBetween(DateTime from, DateTime to, TiffinType type) {
+    return tiffins
+        .where((t) => !t.date.isBefore(from) && !t.date.isAfter(to))
+        .where((t) => t.type == type)
+        .length;
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  DateTime _normalize(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 }
